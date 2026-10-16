@@ -4,7 +4,11 @@
 //                                  windows of [pid]; prints what to restore
 //   swift apps.swift show <pids>   shows those apps again
 //   swift apps.swift check         lists apps still visible besides Finder and the demo editor
+//   swift apps.swift onscreen      lists apps with a normal window on screen, whatever the app
+//                                  reports, such as a browser that showed itself again
 //   swift apps.swift others        bundle IDs of every other app, for an ignore rule
+//   swift apps.swift quit <pid> <name>  quits that app if it still is <name> (a bundle ID or
+//                                  executable name), so a reused process ID is never touched
 import AppKit
 import ApplicationServices
 
@@ -76,10 +80,30 @@ case "show":
     }
 case "check":
     for app in visibleOthers() { print(app.localizedName ?? app.bundleIdentifier ?? "?") }
+case "onscreen":
+    let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    var owners = Set<String>()
+    for w in list where (w[kCGWindowLayer as String] as? Int) == 0 {
+        guard let pid = w[kCGWindowOwnerPID as String] as? Int32, pid > 0,
+              let app = NSRunningApplication(processIdentifier: pid), !isKept(app),
+              // tinywm's own pictures and borders.
+              app.bundleIdentifier != "dev.tinywm", !["tinywm", "tinywm-demo"].contains(app.executableURL?.lastPathComponent ?? "")
+        else { continue }
+        owners.insert(app.localizedName ?? app.bundleIdentifier ?? "pid \(pid)")
+    }
+    for o in owners.sorted() { print(o) }
 case "others":
     let ids = NSWorkspace.shared.runningApplications.filter { !isKept($0) }.compactMap(\.bundleIdentifier)
         + ["com.apple.finder"]
     print(Array(Set(ids)).sorted().joined(separator: ", "))
+case "quit":
+    let rest = Array(args.dropFirst())
+    guard rest.count == 2, let pid = Int32(rest[0]), pid > 0,
+          let app = NSRunningApplication(processIdentifier: pid),
+          app.bundleIdentifier == rest[1] || app.executableURL?.lastPathComponent == rest[1] else { break }
+    app.terminate()
+    for _ in 0..<30 where !app.isTerminated { Thread.sleep(forTimeInterval: 0.1) }
+    if !app.isTerminated { app.forceTerminate() }
 default:
-    print("usage: apps.swift hide | show <pids> | check | others")
+    print("usage: apps.swift hide | show <pids> | check | others | quit <pid> <name>")
 }

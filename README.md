@@ -7,6 +7,8 @@
 <p align="center"><b>Your windows, on an endless strip.</b><br>
 A scrolling window manager for macOS. No more resizing, overlapping or hunting for windows.</p>
 
+<p align="center"><a href="https://github.com/bbodi/tinywm/releases/latest"><b>Download the latest release</b></a></p>
+
 ---
 
 Every new window opens **next to the one you're using**, on the display you're using, and
@@ -14,7 +16,11 @@ nothing else changes size.
 The strip simply runs past the edge of your screen. Scroll it with one key or a swipe, and
 **every window is exactly where you left it**.
 
+tinywm is inspired by [niri](https://github.com/YaLTeR/niri), the scrolling window manager for
+Linux, and brings its way of working to macOS.
+
 <p align="center"><img src="docs/demo.gif" alt="tinywm scrolling a strip of windows, changing widths, switching workspaces and opening the overview"></p>
+<p align="center"><a href="docs/demo.mp4">▶ Watch the demo with sound</a></p>
 
 ## Why you'll like it
 
@@ -28,25 +34,34 @@ The strip simply runs past the edge of your screen. Scroll it with one key or a 
 - **Your rules.** Keep calculators floating, ignore apps entirely, stop chatty apps from stealing focus, or open an app on a chosen display and workspace.
 - **Plain-text config.** One small file, reloaded the moment you save it.
 
+## Install
+
+tinywm needs macOS 14 Sonoma or later on a Mac with Apple silicon.
+
+1. Download `tinywm.zip` from the [latest release](https://github.com/bbodi/tinywm/releases/latest).
+2. Open the zip and drag **tinywm** into your **Applications** folder.
+3. Open **tinywm**. Apple has checked and notarized it, so it opens like any other app.
+
+To update, quit tinywm and replace the app with the new one. Your permissions and settings stay.
+
+**Build it yourself instead** (needs Xcode or the Command Line Tools):
+```sh
+git clone https://github.com/bbodi/tinywm.git
+cd tinywm
+scripts/bundle-tinywm.sh --install
+```
+This puts the app in `~/Applications`.
+
 ## Get started
 
-1. Requires macOS 14 Sonoma or later.
-2. Build and install (needs Xcode or the Command Line Tools):
-   ```sh
-   git clone https://github.com/bbodi/tinywm.git
-   cd tinywm
-   scripts/bundle-tinywm.sh --install
-   ```
-3. Open **tinywm** from `~/Applications`. A welcome window walks you through the permissions:
-   allow **Accessibility** to move windows. **Screen Recording** is optional: it is only for
-   live window pictures. It also checks the macOS settings that get in the way: trackpad
-   gestures, Stage Manager, tiling at screen edges, click wallpaper to reveal desktop, other
-   window managers and Open at Login.
-   Reopen it any time from the menu-bar icon (**Welcome…**).
+When tinywm first opens, a welcome window walks you through the permissions:
 
-**Downloaded a release instead?** tinywm isn't notarized by Apple yet, so macOS blocks the
-first launch. Open it once, then go to **System Settings → Privacy & Security** and click
-**Open Anyway**. You only do this once; your permissions stay through updates.
+- **Accessibility** is required. tinywm uses it to move and resize windows.
+- **Screen Recording** is optional. It is only for live window pictures while windows move.
+
+The welcome window also checks the macOS settings that get in the way: trackpad gestures,
+Stage Manager, tiling at screen edges, click wallpaper to reveal desktop, other window managers
+and Open at Login. Reopen it any time from the menu-bar icon (**Welcome…**).
 
 ## The keys
 
@@ -56,7 +71,7 @@ Hold **right ⌘** (the "meta" key) and press:
 |---|---|
 | H J K L or ← ↓ ↑ → | Move between windows |
 | ⇧ + the same | Move the window itself |
-| U / I | Workspace below / above (⇧ takes the window along) |
+| U / I, ⌥↓ / ⌥↑ or Page Down / Page Up | Workspace below / above (⇧ takes the window along) |
 | . / , | Next / previous display (⇧ takes the window along) |
 | W A S D | The display above, left, below or right (⇧ takes the window along) |
 | R | Cycle width: ⅓, ½, ⅔ |
@@ -66,7 +81,7 @@ Hold **right ⌘** (the "meta" key) and press:
 | T | Float or tile the window |
 | V | Focus the floating windows, then the strip again |
 | 1 – 9 | Jump to a column |
-| Esc | Overview |
+| Esc | Overview: pick a window with the arrows or Tab, then Return; Esc closes it |
 | Q | Close the window |
 
 **Drag with the mouse.** Hold the meta key and drag any window, anywhere inside it. The other
@@ -88,10 +103,16 @@ float    = com.apple.calculator, System Settings
 ignore   = com.apple.finder
 no-focus = Slack                # never steals focus
 
-send d = cmd+space              # meta+D opens your launcher
+send space = cmd+space          # meta+Space opens your launcher
 run shift+return = open -na Ghostty
 focus-crosses-displays = on     # past the last column, focus moves to the next display
+open-on  = Mail -> workspace 2  # an app always opens on a chosen display or workspace
 ```
+
+There is more: `meta = control-option` picks ⌃⌥ as the meta key, `gap` sets the space between
+windows, `width-presets` sets the widths R cycles through, `swipe-fingers = 4` switches swipes
+to four fingers, and `unbind` removes a default key. The config file that tinywm creates lists
+every option with a short explanation.
 
 ## Good to know
 
