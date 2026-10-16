@@ -7,7 +7,8 @@
 # Signing: macOS ties Accessibility and Screen Recording grants to the app's signature. An
 # ad-hoc signature changes on every build, so macOS may ask again after each rebuild. The script
 # signs with "tinywm self-signed" when that identity exists (scripts/make-signing-identity.sh),
-# or with TINYWM_SIGN_IDENTITY when set.
+# or with TINYWM_SIGN_IDENTITY when set. TINYWM_HARDENED=1 adds the hardened runtime and a
+# timestamp, which notarization requires (scripts/release.sh sets it).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -52,7 +53,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-if [ -n "$IDENTITY" ]; then
+if [ "${TINYWM_HARDENED:-}" = 1 ]; then
+    # Notarization requires the hardened runtime and a secure timestamp.
+    codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+    echo "Signed with \"$IDENTITY\"."
+elif [ -n "$IDENTITY" ]; then
     codesign --force --sign "$IDENTITY" "$APP"
     echo "Signed with \"$IDENTITY\"."
 else
