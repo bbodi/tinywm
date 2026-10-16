@@ -63,7 +63,8 @@ The welcome window also checks the macOS settings that get in the way: trackpad 
 Stage Manager, tiling at screen edges, click wallpaper to reveal desktop, other window managers
 and Open at Login. Reopen it any time from the menu-bar icon (**Welcome…**).
 
-## The keys
+## Default keys
+(All of these are configurable)
 
 Hold **right ⌘** (the "meta" key) and press:
 
