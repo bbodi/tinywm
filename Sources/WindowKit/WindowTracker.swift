@@ -18,6 +18,13 @@ private struct Subscription: @unchecked Sendable {
     struct Context: @unchecked Sendable { let pointer: UnsafeMutableRawPointer }
 }
 
+/// Notifications to add on an app's queue.
+private struct PendingNotifications: @unchecked Sendable {
+    let observer: AXObserver
+    let element: AXUIElement
+    let context: UnsafeMutableRawPointer
+}
+
 /// What one sweep found, carried from the background queue to the main thread.
 private struct SweepResult: @unchecked Sendable {
     let unwatched: [NSRunningApplication]
@@ -68,6 +75,12 @@ public final class WindowTracker {
         }
         let nc = NSWorkspace.shared.notificationCenter
         tokens.append(nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { n in
+            guard let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            MainActor.assumeIsolated { self.watch(app) }
+        })
+        // A bare executable started from a terminal is never announced as launched, only as
+        // activated. Without this its windows wait for the next sweep.
+        tokens.append(nc.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { n in
             guard let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             MainActor.assumeIsolated { self.watch(app) }
         })
@@ -242,10 +255,8 @@ public final class WindowTracker {
             var subscription: Subscription?
             if AXObserverCreate(pid, axCallback, &observer) == .success, let observer {
                 let axApp = AXUIElementCreateApplication(pid)
-                for name in [kAXWindowCreatedNotification, kAXFocusedWindowChangedNotification,
-                             kAXApplicationHiddenNotification, kAXApplicationShownNotification] {
-                    AXObserverAddNotification(observer, axApp, name as CFString, context.pointer)
-                }
+                // The other app notifications are added once its windows are looked at.
+                AXObserverAddNotification(observer, axApp, kAXWindowCreatedNotification as CFString, context.pointer)
                 let windows = AX.attribute(axApp, kAXWindowsAttribute, as: [AXUIElement].self) ?? []
                 subscription = Subscription(observer: observer, windows: windows.map(AXRef.init(element:)))
             }
@@ -265,6 +276,20 @@ public final class WindowTracker {
         observers[pid] = subscription.observer
         if resolved { Log.note("tracker", "\(name) runs as process \(pid); watching it") }
         for ref in subscription.windows { admit(ref.element, pid: pid) }
+        subscribe([kAXFocusedWindowChangedNotification, kAXApplicationHiddenNotification, kAXApplicationShownNotification],
+                  on: AXUIElementCreateApplication(pid), observer: subscription.observer, pid: pid)
+    }
+
+    /// Adds notifications on the app's queue, after the requests already waiting there. Each one
+    /// waits for the app, so a slow app holds up neither the main thread nor a window being placed.
+    private func subscribe(_ names: [String], on element: AXUIElement, observer: AXObserver, pid: pid_t) {
+        let pending = PendingNotifications(observer: observer, element: element,
+                                           context: Unmanaged.passUnretained(self).toOpaque())
+        queue(for: pid).async {
+            for name in names {
+                AXObserverAddNotification(pending.observer, pending.element, name as CFString, pending.context)
+            }
+        }
     }
 
     /// Apps being subscribed to on their own queue.
@@ -318,10 +343,8 @@ public final class WindowTracker {
         if registered.contains(ref) { return onAdded(window, pid, nil) }
         guard probing.insert(ref).inserted else { return }
         queue(for: pid).async { [weak self] in
-            let probe = AX.isTileable(ref.element)
-                ? WindowProbe(isDockable: AX.isDockable(ref.element), frame: AX.frame(ref.element),
-                              title: AX.attribute(ref.element, kAXTitleAttribute, as: String.self))
-                : nil
+            let seen = AX.inspect(ref.element)
+            let probe = seen.isTileable ? WindowProbe(isDockable: seen.isDockable, frame: seen.frame, title: seen.title) : nil
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.accept(ref, pid: pid, probe) } }
         }
     }
@@ -329,12 +352,10 @@ public final class WindowTracker {
     private func accept(_ ref: AXRef, pid: pid_t, _ probe: WindowProbe?) {
         probing.remove(ref)
         guard let probe, let observer = observers[pid], registered.insert(ref).inserted else { return }
-        let context = Unmanaged.passUnretained(self).toOpaque()
-        for name in [kAXUIElementDestroyedNotification, kAXWindowMiniaturizedNotification,
-                     kAXWindowDeminiaturizedNotification, kAXWindowMovedNotification,
-                     kAXWindowResizedNotification, kAXTitleChangedNotification] {
-            AXObserverAddNotification(observer, ref.element, name as CFString, context)
-        }
+        subscribe([kAXUIElementDestroyedNotification, kAXWindowMiniaturizedNotification,
+                   kAXWindowDeminiaturizedNotification, kAXWindowMovedNotification,
+                   kAXWindowResizedNotification, kAXTitleChangedNotification],
+                  on: ref.element, observer: observer, pid: pid)
         onAdded(ref.element, pid, probe)
         if !probe.isDockable { recheckDockable(ref, pid: pid, attempts: [1, 3]) }
     }

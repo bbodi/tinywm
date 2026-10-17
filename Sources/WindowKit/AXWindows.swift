@@ -17,13 +17,31 @@ public enum AX {
         return value as? T
     }
 
+    /// Reads several attributes in one request. Each request waits for the app, and some apps,
+    /// such as games, answer only once per frame, so separate reads add up to seconds.
+    /// An attribute the window lacks comes back as nil.
+    public static func attributes(_ e: AXUIElement, _ names: [String]) -> [AnyObject?]? {
+        var values: CFArray?
+        guard AXUIElementCopyMultipleAttributeValues(e, names as CFArray, [], &values) == .success,
+              let list = values as? [AnyObject], list.count == names.count else { return nil }
+        // A missing attribute is reported as an AXValue holding the error.
+        return list.map { value in
+            CFGetTypeID(value) == AXValueGetTypeID() && AXValueGetType(value as! AXValue) == .axError ? nil : value
+        }
+    }
+
     public static func frame(_ e: AXUIElement) -> Rect? {
-        guard let p = attribute(e, kAXPositionAttribute, as: AXValue.self),
-              let s = attribute(e, kAXSizeAttribute, as: AXValue.self) else { return nil }
-        var point = CGPoint.zero, size = CGSize.zero
-        AXValueGetValue(p, .cgPoint, &point)
-        AXValueGetValue(s, .cgSize, &size)
-        return Rect(x: point.x, y: point.y, width: size.width, height: size.height)
+        guard let values = attributes(e, [kAXPositionAttribute, kAXSizeAttribute]) else { return nil }
+        return frame(position: values[0], size: values[1])
+    }
+
+    private static func frame(position: AnyObject?, size: AnyObject?) -> Rect? {
+        guard let position, let size, CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID()
+        else { return nil }
+        var point = CGPoint.zero, extent = CGSize.zero
+        guard AXValueGetValue(position as! AXValue, .cgPoint, &point),
+              AXValueGetValue(size as! AXValue, .cgSize, &extent) else { return nil }
+        return Rect(x: point.x, y: point.y, width: extent.width, height: extent.height)
     }
 
     public static func setPosition(_ e: AXUIElement, _ r: Rect) {
@@ -72,24 +90,42 @@ public enum AX {
         if enhanced { AXUIElementSetAttributeValue(app, key, kCFBooleanTrue) }
     }
 
-    public static func isTileable(_ e: AXUIElement) -> Bool {
-        guard attribute(e, kAXRoleAttribute, as: String.self) == kAXWindowRole,
-              attribute(e, kAXSubroleAttribute, as: String.self) == kAXStandardWindowSubrole,
-              attribute(e, kAXMinimizedAttribute, as: Bool.self) != true,
-              let f = frame(e) else { return false }
+    /// What decides whether a window is managed: its title, frame, and whether it tiles and docks.
+    public struct Inspection: Sendable {
+        public var title: String?
+        public var frame: Rect?
+        public var isTileable: Bool
+        /// False for a window that does not tile, since only a tileable window is asked.
+        public var isDockable: Bool
+    }
+
+    /// Looks at a window in two or three requests to its app.
+    public static func inspect(_ e: AXUIElement) -> Inspection {
+        guard let v = attributes(e, [kAXRoleAttribute, kAXSubroleAttribute, kAXMinimizedAttribute, kAXPositionAttribute,
+                                     kAXSizeAttribute, kAXTitleAttribute, kAXFullScreenButtonAttribute, kAXZoomButtonAttribute])
+        else { return Inspection(title: nil, frame: nil, isTileable: false, isDockable: false) }
+        let frame = frame(position: v[3], size: v[4])
         // Tiny windows are helpers, such as the window that hosts a title bar's buttons.
-        return f.width >= 80 && f.height >= 40
+        let tileable = v[0] as? String == kAXWindowRole && v[1] as? String == kAXStandardWindowSubrole
+            && v[2] as? Bool != true && frame.map { $0.width >= 80 && $0.height >= 40 } == true
+        return Inspection(title: v[5] as? String, frame: frame, isTileable: tileable,
+                          isDockable: tileable && isDockable(e, fullScreenButton: v[6], zoomButton: v[7]))
     }
 
     /// A tileable window the app lets us resize, unless its zoom button is disabled.
     /// Fixed-size windows (calculators, some preference panes) disable zoom and float instead.
     /// Windows that draw their own title bar, like Steam's, have no zoom button and still tile.
     public static func isDockable(_ e: AXUIElement) -> Bool {
+        guard let v = attributes(e, [kAXFullScreenButtonAttribute, kAXZoomButtonAttribute]) else { return false }
+        return isDockable(e, fullScreenButton: v[0], zoomButton: v[1])
+    }
+
+    private static func isDockable(_ e: AXUIElement, fullScreenButton: AnyObject?, zoomButton: AnyObject?) -> Bool {
         var settable: DarwinBoolean = false
         guard AXUIElementIsAttributeSettable(e, kAXSizeAttribute as CFString, &settable) == .success, settable.boolValue
         else { return false }
-        if attribute(e, kAXFullScreenButtonAttribute, as: AnyObject.self) != nil { return true }
-        guard let zoom = attribute(e, kAXZoomButtonAttribute, as: AnyObject.self) else { return true }
+        if fullScreenButton != nil { return true }
+        guard let zoom = zoomButton else { return true }
         guard CFGetTypeID(zoom) == AXUIElementGetTypeID() else { return false }
         return attribute(zoom as! AXUIElement, kAXEnabledAttribute, as: Bool.self) ?? false
     }
@@ -190,10 +226,9 @@ public final class AXWindows: WindowSystem {
         queue(for: pid).async {
             let app = NSRunningApplication(processIdentifier: pid)
             let focused = AX.attribute(AXUIElementCreateApplication(pid), kAXFocusedWindowAttribute, as: AnyObject.self)
-            let reading = Reading(bundleID: app?.bundleIdentifier, appName: app?.localizedName,
-                                  title: AX.attribute(ref.element, kAXTitleAttribute, as: String.self),
-                                  isTileable: AX.isTileable(ref.element), isDockable: AX.isDockable(ref.element),
-                                  frame: AX.frame(ref.element),
+            let seen = AX.inspect(ref.element)
+            let reading = Reading(bundleID: app?.bundleIdentifier, appName: app?.localizedName, title: seen.title,
+                                  isTileable: seen.isTileable, isDockable: seen.isDockable, frame: seen.frame,
                                   isFocused: focused.map { CFEqual($0, ref.element) } ?? false)
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 guard self.tracked[id] != nil else { return completion(nil) }
