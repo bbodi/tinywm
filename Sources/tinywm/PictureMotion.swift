@@ -423,16 +423,16 @@ final class PictureMotion: StripPresenter {
         return group
     }
 
-    /// The ring sits just outside the window, like the real border's stroke and glow.
+    /// The ring sits just outside the window, like the real border.
     private func outset(_ r: NSRect) -> NSRect { r.insetBy(dx: -ringStyle.borderWidth, dy: -ringStyle.borderWidth) }
 
     private func styleRing() {
-        let accent = NSColor.controlAccentColor.cgColor
+        let color = ringStyle.color.cgColor
         ring.borderWidth = ringStyle.borderWidth
-        ring.borderColor = accent
+        ring.borderColor = color
         ring.cornerRadius = ringStyle.cornerRadius + ringStyle.borderWidth / 2
-        ring.shadowColor = accent
-        ring.shadowOpacity = 0.9
+        ring.shadowColor = color
+        ring.shadowOpacity = ringStyle.glowRadius > 0 ? 0.9 : 0
         ring.shadowRadius = ringStyle.glowRadius
         ring.shadowOffset = .zero
     }

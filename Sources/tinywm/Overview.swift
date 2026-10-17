@@ -320,12 +320,12 @@ final class Overview {
     }
 
     private func styleRing() {
-        let accent = NSColor.controlAccentColor.cgColor
+        let color = ringStyle.color.cgColor
         ring.borderWidth = ringStyle.borderWidth
-        ring.borderColor = accent
+        ring.borderColor = color
         ring.cornerRadius = ringStyle.cornerRadius / 2 + ringStyle.borderWidth / 2
-        ring.shadowColor = accent
-        ring.shadowOpacity = 0.9
+        ring.shadowColor = color
+        ring.shadowOpacity = ringStyle.glowRadius > 0 ? 0.9 : 0
         ring.shadowRadius = ringStyle.glowRadius
         ring.shadowOffset = .zero
     }

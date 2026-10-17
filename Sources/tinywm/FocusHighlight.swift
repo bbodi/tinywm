@@ -3,13 +3,15 @@ import QuartzCore
 import WindowCore
 import WindowKit
 
-/// Marks the focused window with a glowing border, ordered directly above it in the window stack.
+/// Marks the focused window with a solid border, ordered directly above it in the window stack.
 @MainActor
 final class FocusHighlight {
     struct Style {
-        var borderWidth: CGFloat = 4
+        var borderWidth: CGFloat = 5
         var cornerRadius: CGFloat = 12
-        var glowRadius: CGFloat = 10
+        var glowRadius: CGFloat = 0
+        /// A bright cyan that stands out against both light and dark windows.
+        var color = NSColor(srgbRed: 0.085, green: 1.0, blue: 0.979, alpha: 1)
     }
 
     var style = Style()
@@ -81,15 +83,15 @@ final class FocusHighlight {
             border.setFrame(outer, display: false)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            let accent = NSColor.controlAccentColor.cgColor
+            let color = style.color.cgColor
             ring.frame = NSRect(origin: .zero, size: outer.size)
             let inset = style.glowRadius + style.borderWidth / 2
             ring.path = CGPath(roundedRect: ring.bounds.insetBy(dx: inset, dy: inset),
                                cornerWidth: style.cornerRadius, cornerHeight: style.cornerRadius, transform: nil)
             ring.lineWidth = style.borderWidth
-            ring.strokeColor = accent
-            ring.shadowColor = accent
-            ring.shadowOpacity = 0.9
+            ring.strokeColor = color
+            ring.shadowColor = color
+            ring.shadowOpacity = style.glowRadius > 0 ? 0.9 : 0
             ring.shadowRadius = style.glowRadius
             ring.shadowOffset = .zero
             CATransaction.commit()
