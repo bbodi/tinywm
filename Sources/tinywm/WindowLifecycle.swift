@@ -76,11 +76,14 @@ final class WindowLifecycle {
         tracker.onAdded = { [unowned self] element, pid, probe in
             let isNew = windows.knownID(for: element) == nil
             let (id, rebound) = windows.identify(element, pid: pid, known: probe.map { ($0.frame, $0.title) })
+            // Some apps, such as Brave, report a window gone during the lock and hand back the
+            // same element after it, so any report of a held window ends its hold.
+            let wasHeld = heldWhileLocked.remove(id) != nil
             if rebound {
-                heldWhileLocked.remove(id)
                 Log.note("tracker", "\(Log.name(id)) is back with a new element, window number \(windows.number(of: id).map(String.init) ?? "?"); it keeps its place")
                 return
             }
+            if wasHeld { Log.note("tracker", "\(Log.name(id)) is back with the same element; it keeps its place") }
             Log.note("tracker", "window appeared \(Log.name(id)) new=\(isNew) at \(Log.rect(windows.landedFrame(of: id) ?? windows.originalFrames[id]))")
             // Dialogs and fixed-size windows stay floating where the app put them.
             if isNew { arrivals.arrived(id, element: element) }
