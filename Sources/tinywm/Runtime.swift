@@ -375,9 +375,11 @@ final class Runtime {
         motionDisplays.remove(id)
     }
 
-    /// Puts the highlight on the strip's focused window when it really has focus.
+    /// Puts the highlight on the strip's focused window when it really has focus. While another
+    /// app is in front, such as a fullscreen game tinywm leaves alone, the border is hidden: it
+    /// shows on every Space and would sit over that app.
     private func updateHighlight(restack: Bool = false) {
-        guard let id = windows.knownFocus, let engine = displays.engine(holding: id),
+        guard let id = windows.focusedWindow, let engine = displays.engine(holding: id),
               engine.strip.focusedWindow == id else {
             highlight.show(nil, frame: nil)
             return

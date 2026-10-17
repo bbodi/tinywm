@@ -22,6 +22,15 @@ import Testing
         #expect(a.overlap(Rect(x: 50, y: 25, width: 100, height: 100)) == Rect(x: 50, y: 25, width: 50, height: 75))
         #expect(a.overlap(Rect(x: 100, y: 0, width: 10, height: 10)) == nil)
     }
+
+    @Test func aFullScreenWindowCoversItsDisplayEvenBelowANotch() {
+        let display = Rect(x: 1000, y: 0, width: 1512, height: 982)
+        #expect(display.coversAsFullScreen(display))
+        #expect(Rect(x: 1000, y: 32, width: 1512, height: 950).coversAsFullScreen(display))
+        // A tile leaves gaps at the sides and bottom.
+        #expect(!Rect(x: 1008, y: 39, width: 1496, height: 935).coversAsFullScreen(display))
+        #expect(!Rect(x: 1000, y: 0, width: 1512, height: 900).coversAsFullScreen(display))
+    }
 }
 
 @Suite struct LogTests {

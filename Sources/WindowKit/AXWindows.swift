@@ -35,6 +35,49 @@ public enum AX {
         return frame(position: values[0], size: values[1])
     }
 
+    /// Reads the frame and whether the window is fullscreen in one request.
+    public static func frameAndFullScreen(_ e: AXUIElement) -> (frame: Rect?, isFullScreen: Bool) {
+        guard let v = attributes(e, [kAXPositionAttribute, kAXSizeAttribute, fullScreenAttribute]) else { return (nil, false) }
+        let frame = frame(position: v[0], size: v[1])
+        return (frame, isFullScreen(flag: v[2], frame: frame))
+    }
+
+    static let fullScreenAttribute = "AXFullScreen"
+
+    /// A window macOS shows fullscreen, or one that fills a whole display, menu bar included,
+    /// as a game's borderless fullscreen window does. Tiles never cover the menu bar.
+    static func isFullScreen(flag: AnyObject?, frame: Rect?) -> Bool {
+        if flag as? Bool == true { return true }
+        guard let frame else { return false }
+        return displayBounds().contains { frame.isApproximately($0, tolerance: 1) }
+    }
+
+    /// Every display's bounds, menu bar included, in Accessibility coordinates. Safe off the main thread.
+    public static func displayBounds() -> [Rect] {
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &ids, &count) == .success else { return [] }
+        return ids.prefix(Int(count)).map {
+            let b = CGDisplayBounds($0)
+            return Rect(x: b.minX, y: b.minY, width: b.width, height: b.height)
+        }
+    }
+
+    /// Whether an ordinary window on screen covers a display, as a fullscreen app or game does.
+    public static func fullScreenWindowShows() -> Bool {
+        let displays = displayBounds()
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        return list.contains { info in
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let b = info[kCGWindowBounds as String] as? [String: Double] else { return false }
+            let r = Rect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
+            return displays.contains { r.coversAsFullScreen($0) }
+        }
+    }
+
     private static func frame(position: AnyObject?, size: AnyObject?) -> Rect? {
         guard let position, let size, CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID()
         else { return nil }
@@ -94,6 +137,8 @@ public enum AX {
     public struct Inspection: Sendable {
         public var title: String?
         public var frame: Rect?
+        /// A fullscreen window never tiles.
+        public var isFullScreen: Bool
         public var isTileable: Bool
         /// False for a window that does not tile, since only a tileable window is asked.
         public var isDockable: Bool
@@ -102,13 +147,15 @@ public enum AX {
     /// Looks at a window in two or three requests to its app.
     public static func inspect(_ e: AXUIElement) -> Inspection {
         guard let v = attributes(e, [kAXRoleAttribute, kAXSubroleAttribute, kAXMinimizedAttribute, kAXPositionAttribute,
-                                     kAXSizeAttribute, kAXTitleAttribute, kAXFullScreenButtonAttribute, kAXZoomButtonAttribute])
-        else { return Inspection(title: nil, frame: nil, isTileable: false, isDockable: false) }
+                                     kAXSizeAttribute, kAXTitleAttribute, kAXFullScreenButtonAttribute, kAXZoomButtonAttribute,
+                                     fullScreenAttribute])
+        else { return Inspection(title: nil, frame: nil, isFullScreen: false, isTileable: false, isDockable: false) }
         let frame = frame(position: v[3], size: v[4])
+        let fullScreen = isFullScreen(flag: v[8], frame: frame)
         // Tiny windows are helpers, such as the window that hosts a title bar's buttons.
         let tileable = v[0] as? String == kAXWindowRole && v[1] as? String == kAXStandardWindowSubrole
-            && v[2] as? Bool != true && frame.map { $0.width >= 80 && $0.height >= 40 } == true
-        return Inspection(title: v[5] as? String, frame: frame, isTileable: tileable,
+            && v[2] as? Bool != true && frame.map { $0.width >= 80 && $0.height >= 40 } == true && !fullScreen
+        return Inspection(title: v[5] as? String, frame: frame, isFullScreen: fullScreen, isTileable: tileable,
                           isDockable: tileable && isDockable(e, fullScreenButton: v[6], zoomButton: v[7]))
     }
 
@@ -159,6 +206,8 @@ public final class AXWindows: WindowSystem {
         var frame: Rect?
         /// The size last written, to tell a resize from a move.
         var writtenSize: Size?
+        /// Whether the window was fullscreen when its frame was last read.
+        var isFullScreen = false
     }
     private var tracked: [String: Tracked] = [:]
     private var ids: [AXRef: String] = [:]
@@ -233,6 +282,7 @@ public final class AXWindows: WindowSystem {
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 guard self.tracked[id] != nil else { return completion(nil) }
                 self.tracked[id]?.title = reading.title
+                self.tracked[id]?.isFullScreen = seen.isFullScreen
                 if let frame = reading.frame { self.tracked[id]?.frame = frame }
                 if reading.isFocused, self.isCurrent(revision, pid: pid) { self.knownFocus = id }
                 completion(reading)
@@ -274,18 +324,23 @@ public final class AXWindows: WindowSystem {
         }
     }
 
-    /// Reads a window's frame on its app's queue, records it, then hands it over on the main thread.
+    /// Reads a window's frame on its app's queue, records it and whether the window is
+    /// fullscreen, then hands the frame over on the main thread.
     public func readFrame(_ id: String, completion: @escaping @MainActor (Rect?) -> Void) {
         guard let w = tracked[id] else { completion(nil); return }
         let ref = w.ref, pid = w.pid
         queue(for: pid).async {
-            let frame = AX.frame(ref.element)
+            let (frame, fullScreen) = AX.frameAndFullScreen(ref.element)
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 if let frame { self.tracked[id]?.frame = frame }
+                self.tracked[id]?.isFullScreen = fullScreen
                 completion(frame)
             } }
         }
     }
+
+    /// Whether the window was fullscreen when its frame was last read.
+    public func isFullScreen(_ id: String) -> Bool { tracked[id]?.isFullScreen ?? false }
 
     /// AX calls block until the target app answers, so each app gets its own serial queue.
     /// A hung app then delays only its own windows.

@@ -40,6 +40,13 @@ public struct Rect: Codable, Equatable, Sendable {
 }
 
 extension Rect {
+    /// Whether the rect covers `display` as a fullscreen window does: its whole width, down to its
+    /// bottom, starting at most `top` below its top edge. macOS puts fullscreen windows below a notch.
+    public func coversAsFullScreen(_ display: Rect, top: Double = 50) -> Bool {
+        abs(x - display.x) <= 1 && abs(width - display.width) <= 1 && abs(maxY - display.maxY) <= 1
+            && y >= display.y - 1 && y <= display.y + top
+    }
+
     /// The overlap with `other`, or nil when they share no area.
     public func overlap(_ other: Rect) -> Rect? {
         let x0 = max(x, other.x), x1 = min(maxX, other.maxX)

@@ -151,7 +151,8 @@ public final class StripEngine {
         changeWorkspaces(raise: false) { $0.strips[w].floatOut(id) }
     }
 
-    public func windowRemoved(_ id: String) {
+    /// `refocus` false leaves focus where it is, as for a window that went fullscreen and keeps it.
+    public func windowRemoved(_ id: String, refocus: Bool = true) {
         Log.note("engine", "\(label) windowRemoved \(Log.name(id))")
         targetFrames[id] = nil
         parked.remove(id)
@@ -161,7 +162,7 @@ public final class StripEngine {
             dragView?.target = nil
             dragView?.leaving = false
         }
-        changeWorkspaces { $0.remove(id) }
+        changeWorkspaces(raise: refocus) { $0.remove(id) }
     }
 
     // MARK: Windows that hide for a while

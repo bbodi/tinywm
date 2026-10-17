@@ -275,9 +275,9 @@ public final class StripDisplays {
         for e in engines.values { e.apply() }
     }
 
-    public func windowRemoved(_ id: String) {
+    public func windowRemoved(_ id: String, refocus: Bool = true) {
         apps[id] = nil
-        engine(holding: id)?.windowRemoved(id)
+        engine(holding: id)?.windowRemoved(id, refocus: refocus)
         for d in retired.keys { retired[d]?.remove(id) }
     }
 

@@ -33,6 +33,8 @@ private struct SweepResult: @unchecked Sendable {
     /// Each app's windows, for the apps that answered. An app whose list could not be read is
     /// left out, so none of its windows count as missing.
     let lists: [(pid_t, [AXRef])]
+    /// A fullscreen window was on screen. In its Space, apps list only that Space's windows.
+    let fullScreenShows: Bool
 }
 
 /// Reports windows as they appear, close and take focus, across every manageable app.
@@ -175,7 +177,8 @@ public final class WindowTracker {
                 guard let listed = AX.attribute(axApp, kAXWindowsAttribute, as: [AXUIElement].self) else { continue }
                 lists.append((pid, listed.map { AXRef(element: $0) }))
             }
-            let result = SweepResult(unwatched: unwatched, resolved: resolved, lists: lists)
+            let result = SweepResult(unwatched: unwatched, resolved: resolved, lists: lists,
+                                     fullScreenShows: AX.fullScreenWindowShows())
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.finishSweep(result) } }
         }
     }
@@ -214,6 +217,8 @@ public final class WindowTracker {
                 if !registered.contains(ref) { admit(ref.element, pid: pid) }
             }
         }
+        // Windows on other Spaces are left out of the lists, not gone.
+        guard !result.fullScreenShows else { missing = []; return }
         let answered = Set(result.lists.map(\.0))
         var listed: Set<CGWindowID>?
         for ref in registered where !seen.contains(ref) {
